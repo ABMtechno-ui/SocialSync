@@ -1,0 +1,61 @@
+export type AccountStatusItem = {
+  connected: boolean;
+  active_accounts: number;
+};
+
+export type AccountStatusResponse = {
+  facebook: AccountStatusItem;
+  instagram: AccountStatusItem;
+  linkedin: AccountStatusItem;
+  twitter: AccountStatusItem;
+  youtube: AccountStatusItem;
+};
+
+export type Account = {
+  id: number;
+  tenant_id: string;
+  platform: string;
+  account_type?: string | null;
+  platform_account_id: string;
+  account_name: string;
+  profile_picture_url?: string | null;
+  is_active: boolean;
+};
+
+export type MediaAsset = {
+  id: number;
+  tenant_id: string;
+  file_url: string;
+  file_type: string;
+  mime_type?: string | null;
+  file_size_bytes?: number | null;
+  width_px?: number | null;
+  height_px?: number | null;
+  duration_seconds?: number | null;
+  alt_text?: string | null;
+};
+
+export type Post = {
+  id: number;
+  social_account_id: number;
+  tenant_id: string;
+  platform: string;
+  content?: string | null;
+  platform_options: Record<string, unknown>;
+  scheduled_at?: string | null;
+  posted_at?: string | null;
+  status: string;
+  retry_count: number;
+  max_retries: number;
+  error_message?: string | null;
+  platform_post_id?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+export type PlatformName =
+  | "facebook"
+  | "instagram"
+  | "linkedin"
+  | "twitter"
+  | "youtube";
