@@ -1,0 +1,10 @@
+.venv
+.git
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.env
+app.zip
+postgres_data
+redis_data
