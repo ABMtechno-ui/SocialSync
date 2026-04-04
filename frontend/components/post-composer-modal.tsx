@@ -146,7 +146,14 @@ export function PostComposerModal({ open, onClose }: Props) {
               <h2 className="section-title">Create Social Post</h2>
               <p className="section-copy" style={{ marginBottom: 0 }}>Upload media, write the main content, then enable only the platforms you want to publish.</p>
             </div>
-            <button className="modal-close" onClick={onClose} type="button">×</button>
+            <button
+              className="modal-close"
+              onClick={onClose}
+              type="button"
+              aria-label="Close composer"
+            >
+              x
+            </button>
           </div>
           <div className="modal-body">
             {message ? <div className="banner success">{message}</div> : null}
@@ -239,7 +246,14 @@ export function PostComposerModal({ open, onClose }: Props) {
         <div className="modal-shell small" onClick={(event) => event.stopPropagation()}>
           <div className="modal-header">
             <div><h2 className="section-title">{labels[activePlatform]} settings</h2><p className="section-copy" style={{ marginBottom: 0 }}>Choose the account and platform-specific values.</p></div>
-            <button className="modal-close" onClick={() => setActivePlatform(null)} type="button">×</button>
+            <button
+              className="modal-close"
+              onClick={() => setActivePlatform(null)}
+              type="button"
+              aria-label="Close platform settings"
+            >
+              x
+            </button>
           </div>
           <div className="modal-body">
             <div className="form-grid">

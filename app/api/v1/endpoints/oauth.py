@@ -56,6 +56,31 @@ def _raise_provider_error(provider, response):
     )
 
 
+def _detail_message(detail) -> str:
+    if isinstance(detail, str):
+        return detail
+    if isinstance(detail, dict):
+        provider = detail.get("provider")
+        response = detail.get("response")
+        if isinstance(response, dict):
+            error = response.get("error")
+            if isinstance(error, dict) and error.get("message"):
+                return f"{provider or 'OAuth'}: {error['message']}"
+        return f"{provider or 'OAuth'} connection failed."
+    return "OAuth flow failed."
+
+
+def _dashboard_redirect(platform: str, result: str, message: str, count: int = 0) -> RedirectResponse:
+    params = {
+        "oauth_platform": platform,
+        "oauth_result": result,
+        "oauth_message": message,
+    }
+    if count:
+        params["oauth_count"] = str(count)
+    return RedirectResponse(f"{settings.frontend_url}/?{urlencode(params)}")
+
+
 @router.get("/facebook/login")
 def facebook_login(tenant_id: str = Query(...)):
     state = _build_state(tenant_id)
@@ -73,41 +98,44 @@ def facebook_login(tenant_id: str = Query(...)):
 def facebook_callback(code: str = Query(...), state: str = Query(...)):
     tenant_id = _extract_tenant_from_state(state)
 
-    token_params = {
-        "client_id": settings.FACEBOOK_CLIENT_ID,
-        "client_secret": settings.FACEBOOK_SECRET,
-        "redirect_uri": settings.facebook_redirect_uri,
-        "code": code,
-    }
-    token_response = requests.get(
-        "https://graph.facebook.com/v18.0/oauth/access_token",
-        params=token_params,
-        timeout=30,
-    )
-    if not token_response.ok:
-        _raise_provider_error("facebook", token_response)
-
-    token_data = token_response.json()
-    access_token = token_data["access_token"]
-
-    saved_accounts = []
-
-    for page in _page_accounts(access_token):
-        account = save_social_account(
-            tenant_id=tenant_id,
-            platform="facebook",
-            platform_account_id=page["id"],
-            account_name=page["name"],
-            access_token=page["access_token"],
-            account_type="page",
+    try:
+        token_params = {
+            "client_id": settings.FACEBOOK_CLIENT_ID,
+            "client_secret": settings.FACEBOOK_SECRET,
+            "redirect_uri": settings.facebook_redirect_uri,
+            "code": code,
+        }
+        token_response = requests.get(
+            "https://graph.facebook.com/v18.0/oauth/access_token",
+            params=token_params,
+            timeout=30,
         )
-        saved_accounts.append({
-            "id": account.id,
-            "platform_account_id": account.platform_account_id,
-            "account_name": account.account_name,
-        })
+        if not token_response.ok:
+            _raise_provider_error("facebook", token_response)
 
-    return {"message": "Facebook connected", "accounts": saved_accounts}
+        token_data = token_response.json()
+        access_token = token_data["access_token"]
+
+        saved_accounts = []
+
+        for page in _page_accounts(access_token):
+            account = save_social_account(
+                tenant_id=tenant_id,
+                platform="facebook",
+                platform_account_id=page["id"],
+                account_name=page["name"],
+                access_token=page["access_token"],
+                account_type="page",
+            )
+            saved_accounts.append(account)
+
+        message = (
+            f"Connected {len(saved_accounts)} Facebook page"
+            f"{'' if len(saved_accounts) == 1 else 's'}."
+        )
+        return _dashboard_redirect("facebook", "success", message, len(saved_accounts))
+    except HTTPException as exc:
+        return _dashboard_redirect("facebook", "error", _detail_message(exc.detail))
 
 
 @router.get("/instagram/login")
@@ -127,64 +155,67 @@ def instagram_login(tenant_id: str = Query(...)):
 def instagram_callback(code: str = Query(...), state: str = Query(...)):
     tenant_id = _extract_tenant_from_state(state)
 
-    token_params = {
-        "client_id": settings.FACEBOOK_CLIENT_ID,
-        "client_secret": settings.FACEBOOK_SECRET,
-        "redirect_uri": settings.instagram_redirect_uri,
-        "code": code,
-    }
-    token_response = requests.get(
-        "https://graph.facebook.com/v18.0/oauth/access_token",
-        params=token_params,
-        timeout=30,
-    )
-    if not token_response.ok:
-        _raise_provider_error("instagram", token_response)
-
-    token_data = token_response.json()
-    access_token = token_data["access_token"]
-
-    saved_accounts = []
-
-    for page in _page_accounts(access_token):
-        page_details = requests.get(
-            f"https://graph.facebook.com/v18.0/{page['id']}",
-            params={
-                "access_token": page["access_token"],
-                "fields": "instagram_business_account{id,username,profile_picture_url},name",
-            },
+    try:
+        token_params = {
+            "client_id": settings.FACEBOOK_CLIENT_ID,
+            "client_secret": settings.FACEBOOK_SECRET,
+            "redirect_uri": settings.instagram_redirect_uri,
+            "code": code,
+        }
+        token_response = requests.get(
+            "https://graph.facebook.com/v18.0/oauth/access_token",
+            params=token_params,
             timeout=30,
         )
-        if not page_details.ok:
-            _raise_provider_error("instagram", page_details)
+        if not token_response.ok:
+            _raise_provider_error("instagram", token_response)
 
-        page_data = page_details.json()
-        instagram_account = page_data.get("instagram_business_account")
-        if not instagram_account:
-            continue
+        token_data = token_response.json()
+        access_token = token_data["access_token"]
 
-        account = save_social_account(
-            tenant_id=tenant_id,
-            platform="instagram",
-            platform_account_id=instagram_account["id"],
-            account_name=instagram_account.get("username") or page_data.get("name") or page["name"],
-            access_token=page["access_token"],
-            account_type="business",
-            profile_picture_url=instagram_account.get("profile_picture_url"),
+        saved_accounts = []
+
+        for page in _page_accounts(access_token):
+            page_details = requests.get(
+                f"https://graph.facebook.com/v18.0/{page['id']}",
+                params={
+                    "access_token": page["access_token"],
+                    "fields": "instagram_business_account{id,username,profile_picture_url},name",
+                },
+                timeout=30,
+            )
+            if not page_details.ok:
+                _raise_provider_error("instagram", page_details)
+
+            page_data = page_details.json()
+            instagram_account = page_data.get("instagram_business_account")
+            if not instagram_account:
+                continue
+
+            account = save_social_account(
+                tenant_id=tenant_id,
+                platform="instagram",
+                platform_account_id=instagram_account["id"],
+                account_name=instagram_account.get("username") or page_data.get("name") or page["name"],
+                access_token=page["access_token"],
+                account_type="business_or_creator",
+                profile_picture_url=instagram_account.get("profile_picture_url"),
+            )
+            saved_accounts.append(account)
+
+        if not saved_accounts:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Instagram requires a Business or Creator account linked to one of the authenticated Facebook Pages.",
+            )
+
+        message = (
+            f"Connected {len(saved_accounts)} Instagram professional account"
+            f"{'' if len(saved_accounts) == 1 else 's'}."
         )
-        saved_accounts.append({
-            "id": account.id,
-            "platform_account_id": account.platform_account_id,
-            "account_name": account.account_name,
-        })
-
-    if not saved_accounts:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No Instagram Business or Creator account is linked to the authenticated Facebook Pages.",
-        )
-
-    return {"message": "Instagram connected", "accounts": saved_accounts}
+        return _dashboard_redirect("instagram", "success", message, len(saved_accounts))
+    except HTTPException as exc:
+        return _dashboard_redirect("instagram", "error", _detail_message(exc.detail))
 
 
 @router.get("/linkedin/login")
@@ -205,50 +236,45 @@ def linkedin_login(tenant_id: str = Query(...)):
 def linkedin_callback(code: str = Query(...), state: str = Query(...)):
     tenant_id = _extract_tenant_from_state(state)
 
-    data = {
-        "grant_type": "authorization_code",
-        "code": code,
-        "redirect_uri": settings.linkedin_redirect_uri,
-        "client_id": settings.LINKEDIN_CLIENT_ID,
-        "client_secret": settings.LINKEDIN_SECRET,
-    }
-    token_response = requests.post(
-        "https://www.linkedin.com/oauth/v2/accessToken",
-        data=data,
-        timeout=30,
-    )
-    if not token_response.ok:
-        _raise_provider_error("linkedin", token_response)
+    try:
+        data = {
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": settings.linkedin_redirect_uri,
+            "client_id": settings.LINKEDIN_CLIENT_ID,
+            "client_secret": settings.LINKEDIN_SECRET,
+        }
+        token_response = requests.post(
+            "https://www.linkedin.com/oauth/v2/accessToken",
+            data=data,
+            timeout=30,
+        )
+        if not token_response.ok:
+            _raise_provider_error("linkedin", token_response)
 
-    token_data = token_response.json()
-    access_token = token_data["access_token"]
+        token_data = token_response.json()
+        access_token = token_data["access_token"]
 
-    profile_response = requests.get(
-        "https://api.linkedin.com/v2/me",
-        headers={"Authorization": "Bearer {0}".format(access_token)},
-        timeout=30,
-    )
-    if not profile_response.ok:
-        _raise_provider_error("linkedin", profile_response)
+        profile_response = requests.get(
+            "https://api.linkedin.com/v2/me",
+            headers={"Authorization": "Bearer {0}".format(access_token)},
+            timeout=30,
+        )
+        if not profile_response.ok:
+            _raise_provider_error("linkedin", profile_response)
 
-    profile = profile_response.json()
-
-    account = save_social_account(
-        tenant_id=tenant_id,
-        platform="linkedin",
-        platform_account_id=profile["id"],
-        account_name="LinkedIn User",
-        access_token=access_token,
-    )
-
-    return {
-        "message": "LinkedIn connected",
-        "account": {
-            "id": account.id,
-            "platform_account_id": account.platform_account_id,
-            "account_name": account.account_name,
-        },
-    }
+        profile = profile_response.json()
+        account = save_social_account(
+            tenant_id=tenant_id,
+            platform="linkedin",
+            platform_account_id=profile["id"],
+            account_name="LinkedIn Profile",
+            access_token=access_token,
+            account_type="personal_profile",
+        )
+        return _dashboard_redirect("linkedin", "success", "Connected your LinkedIn profile.", 1)
+    except HTTPException as exc:
+        return _dashboard_redirect("linkedin", "error", _detail_message(exc.detail))
 
 
 @router.get("/google/login")
@@ -272,61 +298,58 @@ def google_login(tenant_id: str = Query(...)):
 def google_callback(code: str = Query(...), state: str = Query(...)):
     tenant_id = _extract_tenant_from_state(state)
 
-    data = {
-        "code": code,
-        "client_id": settings.GOOGLE_CLIENT_ID,
-        "client_secret": settings.GOOGLE_SECRET,
-        "redirect_uri": settings.google_redirect_uri,
-        "grant_type": "authorization_code",
-    }
-    token_response = requests.post(
-        "https://oauth2.googleapis.com/token",
-        data=data,
-        timeout=30,
-    )
-    if not token_response.ok:
-        _raise_provider_error("google", token_response)
+    try:
+        data = {
+            "code": code,
+            "client_id": settings.GOOGLE_CLIENT_ID,
+            "client_secret": settings.GOOGLE_SECRET,
+            "redirect_uri": settings.google_redirect_uri,
+            "grant_type": "authorization_code",
+        }
+        token_response = requests.post(
+            "https://oauth2.googleapis.com/token",
+            data=data,
+            timeout=30,
+        )
+        if not token_response.ok:
+            _raise_provider_error("google", token_response)
 
-    tokens = token_response.json()
+        tokens = token_response.json()
 
-    channel_response = requests.get(
-        "https://www.googleapis.com/youtube/v3/channels",
-        headers={"Authorization": f"Bearer {tokens['access_token']}"},
-        params={"part": "snippet", "mine": "true"},
-        timeout=30,
-    )
-    if not channel_response.ok:
-        _raise_provider_error("google", channel_response)
+        channel_response = requests.get(
+            "https://www.googleapis.com/youtube/v3/channels",
+            headers={"Authorization": f"Bearer {tokens['access_token']}"},
+            params={"part": "snippet", "mine": "true"},
+            timeout=30,
+        )
+        if not channel_response.ok:
+            _raise_provider_error("google", channel_response)
 
-    channel_items = channel_response.json().get("items", [])
-    if not channel_items:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No YouTube channel was found for the authenticated Google account.",
+        channel_items = channel_response.json().get("items", [])
+        if not channel_items:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No YouTube channel was found for the authenticated Google account.",
+            )
+
+        channel = channel_items[0]
+        channel_snippet = channel.get("snippet", {})
+
+        save_social_account(
+            tenant_id=tenant_id,
+            platform="youtube",
+            platform_account_id=channel["id"],
+            account_name=channel_snippet.get("title", "YouTube"),
+            access_token=tokens["access_token"],
+            refresh_token=tokens.get("refresh_token"),
+            expires_in=tokens.get("expires_in"),
+            account_type="channel",
+            profile_picture_url=(channel_snippet.get("thumbnails", {}).get("default") or {}).get("url"),
         )
 
-    channel = channel_items[0]
-    channel_snippet = channel.get("snippet", {})
-
-    account = save_social_account(
-        tenant_id=tenant_id,
-        platform="youtube",
-        platform_account_id=channel["id"],
-        account_name=channel_snippet.get("title", "YouTube"),
-        access_token=tokens["access_token"],
-        refresh_token=tokens.get("refresh_token"),
-        expires_in=tokens.get("expires_in"),
-        profile_picture_url=(channel_snippet.get("thumbnails", {}).get("default") or {}).get("url"),
-    )
-
-    return {
-        "message": "YouTube connected",
-        "account": {
-            "id": account.id,
-            "platform_account_id": account.platform_account_id,
-            "account_name": account.account_name,
-        },
-    }
+        return _dashboard_redirect("youtube", "success", "Connected your YouTube channel.", 1)
+    except HTTPException as exc:
+        return _dashboard_redirect("youtube", "error", _detail_message(exc.detail))
 
 
 @router.get("/twitter/login")
@@ -367,58 +390,59 @@ def twitter_callback(
 ):
     tenant_id = _extract_tenant_from_state(state)
 
-    verifier = twitter_code_verifier
-    if not verifier:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Missing Twitter code verifier",
+    try:
+        verifier = twitter_code_verifier
+        if not verifier:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Missing Twitter code verifier",
+            )
+
+        data = {
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": settings.twitter_redirect_uri,
+            "client_id": settings.TWITTER_CLIENT_ID,
+            "code_verifier": verifier,
+        }
+
+        token_response = requests.post(
+            "https://api.twitter.com/2/oauth2/token",
+            data=data,
+            auth=(settings.TWITTER_CLIENT_ID, settings.TWITTER_CLIENT_SECRET),
+            timeout=30,
+        )
+        if not token_response.ok:
+            _raise_provider_error("twitter", token_response)
+
+        token_data = token_response.json()
+        access_token = token_data["access_token"]
+
+        user_response = requests.get(
+            "https://api.twitter.com/2/users/me",
+            headers={"Authorization": "Bearer {0}".format(access_token)},
+            timeout=30,
+        )
+        if not user_response.ok:
+            _raise_provider_error("twitter", user_response)
+
+        user_data = user_response.json().get("data", {})
+
+        save_social_account(
+            tenant_id=tenant_id,
+            platform="twitter",
+            platform_account_id=user_data.get("id", ""),
+            account_name=user_data.get("name", "Twitter User"),
+            access_token=access_token,
+            refresh_token=token_data.get("refresh_token"),
+            expires_in=token_data.get("expires_in"),
+            account_type="personal_or_brand",
         )
 
-    data = {
-        "grant_type": "authorization_code",
-        "code": code,
-        "redirect_uri": settings.twitter_redirect_uri,
-        "client_id": settings.TWITTER_CLIENT_ID,
-        "code_verifier": verifier,
-    }
-
-    token_response = requests.post(
-        "https://api.twitter.com/2/oauth2/token",
-        data=data,
-        auth=(settings.TWITTER_CLIENT_ID, settings.TWITTER_CLIENT_SECRET),
-        timeout=30,
-    )
-    if not token_response.ok:
-        _raise_provider_error("twitter", token_response)
-
-    token_data = token_response.json()
-    access_token = token_data["access_token"]
-
-    user_response = requests.get(
-        "https://api.twitter.com/2/users/me",
-        headers={"Authorization": "Bearer {0}".format(access_token)},
-        timeout=30,
-    )
-    if not user_response.ok:
-        _raise_provider_error("twitter", user_response)
-
-    user_data = user_response.json().get("data", {})
-
-    account = save_social_account(
-        tenant_id=tenant_id,
-        platform="twitter",
-        platform_account_id=user_data.get("id", ""),
-        account_name=user_data.get("name", "Twitter User"),
-        access_token=access_token,
-        refresh_token=token_data.get("refresh_token"),
-        expires_in=token_data.get("expires_in"),
-    )
-
-    return {
-        "message": "Twitter connected",
-        "account": {
-            "id": account.id,
-            "platform_account_id": account.platform_account_id,
-            "account_name": account.account_name,
-        },
-    }
+        response = _dashboard_redirect("twitter", "success", "Connected your X account.", 1)
+        response.delete_cookie("twitter_code_verifier")
+        return response
+    except HTTPException as exc:
+        response = _dashboard_redirect("twitter", "error", _detail_message(exc.detail))
+        response.delete_cookie("twitter_code_verifier")
+        return response
