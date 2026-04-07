@@ -1,7 +1,8 @@
 from datetime import datetime
+from typing import Optional
 
 import app.db.models  # noqa: F401
-from app.core.logging import get_logger
+from app.core.logging import get_logger, log_event
 from app.db.database import SessionLocal, reset_tenant_context, set_tenant_context
 from app.models.media_asset import MediaAsset
 from app.models.post_media import PostMedia
@@ -12,7 +13,15 @@ from app.services.provider_publishers import PublishError, publish_to_provider
 logger = get_logger("app.publisher")
 
 
-def publish_post(post_id: int, tenant_id: str):
+def publish_post(post_id: int, tenant_id: str, request_id: Optional[str] = "N/A"):
+    """
+    Publish a scheduled post with full request tracing.
+    
+    Args:
+        post_id: Database ID of the post
+        tenant_id: Multi-tenant identifier
+        request_id: Correlation ID for end-to-end tracing
+    """
     db = SessionLocal()
     set_tenant_context(db, tenant_id)
 
@@ -22,13 +31,23 @@ def publish_post(post_id: int, tenant_id: str):
     ).first()
 
     if not post:
-        logger.warning("publish.skip_missing_post tenant_id=%s post_id=%s", tenant_id, post_id)
+        log_event(
+            logger, "warning", "publish.skip_missing_post",
+            request_id=request_id,
+            step="validate_post",
+            extra={"post_id": post_id, "tenant_id": tenant_id}
+        )
         reset_tenant_context(db)
         db.close()
         return
 
     if post.status == "cancelled":
-        logger.info("publish.skip_cancelled tenant_id=%s post_id=%s", tenant_id, post_id)
+        log_event(
+            logger, "info", "publish.skip_cancelled",
+            request_id=request_id,
+            step="validate_status",
+            extra={"post_id": post_id, "platform": post.platform}
+        )
         reset_tenant_context(db)
         db.close()
         return
@@ -38,7 +57,13 @@ def publish_post(post_id: int, tenant_id: str):
         tenant_id=tenant_id,
     ).first()
     if not account:
-        logger.error("publish.missing_account tenant_id=%s post_id=%s", tenant_id, post_id)
+        log_event(
+            logger, "error", "publish.missing_account",
+            request_id=request_id,
+            platform=post.platform,
+            step="validate_account",
+            extra={"post_id": post_id, "account_id": post.social_account_id}
+        )
         post.status = "failed"
         post.error_message = "Connected account not found"
         post.updated_at = datetime.utcnow()
@@ -60,12 +85,19 @@ def publish_post(post_id: int, tenant_id: str):
     )
 
     try:
-        logger.info(
-            "publish.started tenant_id=%s post_id=%s platform=%s",
-            tenant_id,
-            post_id,
-            post.platform,
+        log_event(
+            logger, "info", "publish.started",
+            request_id=request_id,
+            platform=post.platform,
+            step="publish_start",
+            extra={
+                "post_id": post_id,
+                "tenant_id": tenant_id,
+                "media_count": len(media_assets),
+                "scheduled_at": str(post.scheduled_at),
+            }
         )
+        
         post.status = "processing"
         post.error_message = None
         post.updated_at = datetime.utcnow()
@@ -77,12 +109,17 @@ def publish_post(post_id: int, tenant_id: str):
         post.posted_at = datetime.utcnow()
         post.platform_post_id = provider_post_id
         post.updated_at = datetime.utcnow()
-        logger.info(
-            "publish.completed tenant_id=%s post_id=%s platform=%s provider_post_id=%s",
-            tenant_id,
-            post_id,
-            post.platform,
-            provider_post_id,
+        
+        log_event(
+            logger, "info", "publish.completed",
+            request_id=request_id,
+            platform=post.platform,
+            step="publish_success",
+            extra={
+                "post_id": post_id,
+                "provider_post_id": provider_post_id,
+                "media_count": len(media_assets),
+            }
         )
 
     except PublishError as e:
@@ -106,12 +143,21 @@ def publish_post(post_id: int, tenant_id: str):
             post.status = "failed"
         else:
             post.status = "queued"
-        logger.exception(
-            "publish.failed tenant_id=%s post_id=%s retry_count=%s",
-            tenant_id,
-            post_id,
-            post.retry_count,
+            
+        log_event(
+            logger, "error", "publish.failed",
+            request_id=request_id,
+            platform=post.platform if post else "unknown",
+            step="publish_error",
+            extra={
+                "post_id": post_id,
+                "retry_count": post.retry_count if post else 0,
+                "error": str(e),
+                "retryable": e.retryable,
+            },
+            exc_info=True
         )
+        
     except Exception as e:
         db.rollback()
 
@@ -133,11 +179,18 @@ def publish_post(post_id: int, tenant_id: str):
             post.status = "failed"
         else:
             post.status = "queued"
-        logger.exception(
-            "publish.failed_unexpected tenant_id=%s post_id=%s retry_count=%s",
-            tenant_id,
-            post_id,
-            post.retry_count,
+            
+        log_event(
+            logger, "error", "publish.failed_unexpected",
+            request_id=request_id,
+            platform=post.platform if post else "unknown",
+            step="publish_unexpected_error",
+            extra={
+                "post_id": post_id,
+                "retry_count": post.retry_count,
+                "error": str(e),
+            },
+            exc_info=True
         )
 
     db.commit()

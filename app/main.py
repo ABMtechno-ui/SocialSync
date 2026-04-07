@@ -46,47 +46,74 @@ app.middleware("http")(jwt_context_middleware)
 
 
 @app.middleware("http")
-async def request_logging_middleware(request: Request, call_next):
+async def request_id_middleware(request: Request, call_next):
+    """
+    Generate and propagate correlation ID for end-to-end request tracing.
+    
+    Every request gets a unique request_id that flows through:
+    - API layer
+    - Celery tasks
+    - External API calls
+    """
+    import uuid
+    
+    # Get request_id from header or generate new one
     request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
+    
+    # Store in request state for access in endpoints
+    request.state.request_id = request_id
+    
     started = time.perf_counter()
-
+    
     logger.info(
-        "request.started request_id=%s method=%s path=%s",
-        request_id,
-        request.method,
-        request.url.path,
+        "request.started",
+        extra={
+            "request_id": request_id,
+            "method": request.method,
+            "path": request.url.path,
+        }
     )
-
+    
     try:
         response = await call_next(request)
-    except Exception:
+        
+        # Add request_id to response headers
+        response.headers["X-Request-ID"] = request_id
+        
+        duration_ms = (time.perf_counter() - started) * 1000
+        logger.info(
+            "request.completed",
+            extra={
+                "request_id": request_id,
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": response.status_code,
+                "duration_ms": round(duration_ms, 2),
+            }
+        )
+        
+        return response
+        
+    except Exception as e:
         duration_ms = (time.perf_counter() - started) * 1000
         logger.exception(
-            "request.failed request_id=%s method=%s path=%s duration_ms=%.2f",
-            request_id,
-            request.method,
-            request.url.path,
-            duration_ms,
+            "request.failed",
+            extra={
+                "request_id": request_id,
+                "method": request.method,
+                "path": request.url.path,
+                "duration_ms": round(duration_ms, 2),
+                "error": str(e),
+            }
         )
+        
         return JSONResponse(
             status_code=500,
             content={
                 "detail": "Internal server error",
-                "request_id": request_id,
+                "request_id": request_id,  # User can report this for debugging
             },
         )
-
-    duration_ms = (time.perf_counter() - started) * 1000
-    response.headers["X-Request-ID"] = request_id
-    logger.info(
-        "request.completed request_id=%s method=%s path=%s status=%s duration_ms=%.2f",
-        request_id,
-        request.method,
-        request.url.path,
-        response.status_code,
-        duration_ms,
-    )
-    return response
 
 
 from app.api.v1.api import api_router

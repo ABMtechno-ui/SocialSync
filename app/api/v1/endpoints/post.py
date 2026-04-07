@@ -1,14 +1,16 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
+from app.core.logging import get_logger, log_event
 from app.schemas.post import PostCreate, PostCreateResponse, PostRead, PostUpdate
 from app.crud.post import create_post, get_post, list_posts, update_post, update_post_status
 from app.utils.deps import get_db, get_tenant
 from app.worker.celery_app import celery_app
 
 router = APIRouter()
+logger = get_logger("app.api.post")
 
 
 def _is_future_timestamp(value):
@@ -21,13 +23,35 @@ def _is_future_timestamp(value):
 
 @router.post("/", response_model=PostCreateResponse, status_code=status.HTTP_201_CREATED)
 def create(
+    request: Request,
     data: PostCreate,
     db: Session = Depends(get_db),
     tenant_id: str = Depends(get_tenant),
 ):
+    # Extract request_id from middleware
+    request_id = getattr(request.state, "request_id", "N/A")
+    
+    log_event(
+        logger, "info", "post.create_request",
+        request_id=request_id,
+        step="api_endpoint",
+        extra={
+            "platform": data.platform,
+            "content_preview": data.content[:50] if data.content else "",
+            "scheduled_at": str(data.scheduled_at) if data.scheduled_at else "immediate",
+        }
+    )
+    
     try:
         post = create_post(db, tenant_id, data)
     except ValueError as exc:
+        log_event(
+            logger, "error", "post.create_failed",
+            request_id=request_id,
+            step="validation_error",
+            extra={"error": str(exc)},
+            exc_info=True
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
@@ -39,13 +63,38 @@ def create(
         task = celery_app.send_task(
             "app.worker.tasks.publish_post_task",
             args=[post.id, tenant_id],
+            kwargs={"request_id": request_id},  # Pass request_id to task
             eta=post.scheduled_at,
+        )
+        log_event(
+            logger, "info", "post.scheduled",
+            request_id=request_id,
+            step="celery_task_scheduled",
+            extra={
+                "post_id": post.id,
+                "task_id": task.id,
+                "scheduled_at": str(post.scheduled_at),
+            }
         )
     else:
         task = celery_app.send_task(
             "app.worker.tasks.publish_post_task",
             args=[post.id, tenant_id],
+            kwargs={"request_id": request_id},  # Pass request_id to task
         )
+        log_event(
+            logger, "info", "post.queued_immediate",
+            request_id=request_id,
+            step="celery_task_queued",
+            extra={"post_id": post.id, "task_id": task.id}
+        )
+
+    log_event(
+        logger, "info", "post.create_success",
+        request_id=request_id,
+        step="api_response",
+        extra={"post_id": post.id, "task_id": task.id if task else None}
+    )
 
     return {"post_id": post.id, "status": post.status, "task_id": task.id if task else None}
 
