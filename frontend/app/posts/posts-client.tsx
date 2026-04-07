@@ -71,6 +71,7 @@ export default function PostsClient() {
   const [composerOpen, setComposerOpen] = useState(false);
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   async function load() {
     try {
@@ -78,12 +79,18 @@ export default function PostsClient() {
       setPosts(postData);
       setAccounts(accountData);
       setError(null);
+      setLastUpdated(new Date());
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Unable to load posts.");
     }
   }
 
-  useEffect(() => { void load(); }, []);
+  // Auto-refresh every 30 seconds for real-time status updates
+  useEffect(() => {
+    void load();
+    const interval = setInterval(load, 30000); // 30 seconds
+    return () => clearInterval(interval);
+  }, []);
 
   async function handlePublishNow(postId: number) {
     try {
@@ -178,10 +185,27 @@ export default function PostsClient() {
         <div className="flex-1 px-5 py-6 sm:px-8 space-y-6">
           {/* Page header */}
           <div className="fade-up">
-            <h1 className="font-display text-3xl font-semibold tracking-[-0.05em] text-ink-900 sm:text-4xl">Scheduled Posts</h1>
-            <p className="mt-2 text-sm leading-6 text-ink-600">
-              Manage queued delivery, publish immediately, cancel safely, and inspect platform failures.
-            </p>
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="font-display text-3xl font-semibold tracking-[-0.05em] text-ink-900 sm:text-4xl">Scheduled Posts</h1>
+                <p className="mt-2 text-sm leading-6 text-ink-600">
+                  Manage queued delivery, publish immediately, cancel safely, and inspect platform failures.
+                </p>
+                {lastUpdated && (
+                  <p className="mt-1 text-xs text-ink-400">
+                    Last updated: {lastUpdated.toLocaleTimeString()}
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => void load()}
+                className="secondary-button px-4 py-2 text-sm"
+                title="Refresh posts"
+              >
+                🔄 Refresh
+              </button>
+            </div>
           </div>
 
           {/* Summary stats */}

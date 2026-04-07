@@ -105,11 +105,22 @@ function getPlatformMediaState(platform: PlatformName, selectedAssets: MediaAsse
   }
 
   if (platform === "instagram") {
-    if (!selectedAssets.length) return { valid: false, message: "Instagram requires exactly one image or video." };
-    if (selectedAssets.length !== 1 || otherCount) {
-      return { valid: false, message: "Instagram supports exactly one image or one video." };
+    if (!selectedAssets.length) return { valid: false, message: "Instagram requires at least one image or video." };
+    if (selectedAssets.length > 10) {
+      return { valid: false, message: "Instagram carousel supports maximum 10 media items." };
     }
-    return { valid: true, message: videoCount ? "Ready for an Instagram video/reel." : "Ready for an Instagram image post." };
+    if (otherCount) {
+      return { valid: false, message: "Instagram supports image and video assets only." };
+    }
+    // Check if all same type for carousel
+    if (selectedAssets.length > 1) {
+      const types = new Set(selectedAssets.map(a => a.file_type));
+      if (types.size > 1) {
+        return { valid: false, message: "Instagram carousel must contain same media type (all images or all videos)." };
+      }
+    }
+    const isCarousel = selectedAssets.length > 1;
+    return { valid: true, message: isCarousel ? `Ready for Instagram carousel (${selectedAssets.length} items).` : videoCount ? "Ready for an Instagram video/reel." : "Ready for an Instagram image post." };
   }
 
   if (platform === "linkedin") {
@@ -285,8 +296,15 @@ export function PostComposerModal({ open, onClose, onCreated }: Props) {
       }
 
       if (platform === "instagram") {
-        if (mediaCount !== 1) {
-          return "Instagram requires exactly one image or video.";
+        if (mediaCount < 1 || mediaCount > 10) {
+          return "Instagram requires 1-10 media items (carousel supports up to 10).";
+        }
+        // Check if all same type for carousel
+        if (mediaCount > 1) {
+          const types = new Set(selectedAssets.map((a: MediaAsset) => a.file_type));
+          if (types.size > 1) {
+            return "Instagram carousel must contain same media type (all images or all videos).";
+          }
         }
       }
 
