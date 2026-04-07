@@ -6,6 +6,46 @@ import { createPost, fetchAccounts, fetchMedia, uploadMedia } from "@/lib/api";
 import { Account, MediaAsset, PlatformName } from "@/lib/types";
 
 type Props = { open: boolean; onClose: () => void; onCreated?: () => Promise<void> | void };
+
+// Loading spinner component
+function LoadingSpinner({ size = "md" }: { size?: "sm" | "md" | "lg" }) {
+  const sizeClasses = {
+    sm: "h-4 w-4",
+    md: "h-6 w-6",
+    lg: "h-8 w-8",
+  };
+  return (
+    <div className={`inline-block animate-spin rounded-full border-2 border-current border-t-transparent ${sizeClasses[size]}`} role="status" aria-label="loading">
+      <span className="sr-only">Loading...</span>
+    </div>
+  );
+}
+
+// Animated checkmark for success
+function SuccessIcon() {
+  return (
+    <svg className="h-5 w-5 animate-bounce text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+    </svg>
+  );
+}
+
+// Platform icon with hover animation
+function PlatformIcon({ platform, enabled }: { platform: PlatformName; enabled: boolean }) {
+  const icons: Record<PlatformName, string> = {
+    facebook: "📘",
+    instagram: "📷",
+    linkedin: "💼",
+    twitter: "🐦",
+    youtube: "🎥",
+  };
+
+  return (
+    <span className={`inline-block text-xl transition-transform duration-200 ${enabled ? "scale-110" : "group-hover:scale-105"}`}>
+      {icons[platform]}
+    </span>
+  );
+}
 type Config = {
   enabled: boolean;
   accountId: number | null;
@@ -422,22 +462,44 @@ export function PostComposerModal({ open, onClose, onCreated }: Props) {
   const config = configs[activePlatform];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(20,20,20,0.45)] p-4 backdrop-blur-sm">
-      <div className="relative flex max-h-[94vh] w-full max-w-[1240px] overflow-hidden rounded-[34px] border border-white/70 bg-white shadow-[0_30px_80px_rgba(18,18,18,0.22)]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(20,20,20,0.45)] p-4 backdrop-blur-sm animate-fade-in">
+      <div className="relative flex max-h-[94vh] w-full max-w-[1240px] overflow-hidden rounded-[34px] border border-white/70 bg-white shadow-[0_30px_80px_rgba(18,18,18,0.22)] animate-slide-up">
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
           <div className="flex items-start justify-between border-b border-[#f0e6d5] px-6 py-5 sm:px-8">
             <div>
-              <p className="mb-1 text-sm font-medium text-[#b3892d]">Create Post</p>
+              <p className="mb-1 text-sm font-medium text-[#b3892d] flex items-center gap-2">
+                <span className="inline-block w-2 h-2 rounded-full bg-brand-400 animate-pulse"></span>
+                Create Post
+              </p>
               <h2 className="font-display text-3xl font-semibold tracking-[-0.06em] text-ink-900">What&apos;s on your mind?</h2>
               <p className="mt-2 text-sm text-ink-600">Share updates, upload media, and tailor the post for each connected platform.</p>
             </div>
-            <button type="button" onClick={onClose} className="secondary-button h-11 w-11 rounded-2xl p-0">×</button>
+            <button 
+              type="button" 
+              onClick={onClose} 
+              className="secondary-button h-11 w-11 rounded-2xl p-0 text-xl font-bold transition-all duration-200 hover:rotate-90 hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 active:rotate-0"
+              aria-label="Close modal"
+            >
+              ×
+            </button>
           </div>
 
           <div className="grid flex-1 gap-6 px-6 py-6 sm:px-8 xl:grid-cols-[1.35fr_0.95fr]">
             <div className="space-y-5">
-              {message ? <div className="rounded-2xl border border-[#d7e9c0] bg-[#f7fbef] px-4 py-3 text-sm text-[#53722c]">{message}</div> : null}
-              {error ? <div className="rounded-2xl border border-[#f1d3d0] bg-[#fff4f3] px-4 py-3 text-sm text-[#a54848]">{error}</div> : null}
+              {message ? (
+                <div className="rounded-2xl border border-[#d7e9c0] bg-[#f7fbef] px-4 py-4 text-sm text-[#53722c] flex items-center gap-3 animate-fade-in shadow-sm">
+                  <SuccessIcon />
+                  <span className="font-medium">{message}</span>
+                </div>
+              ) : null}
+              {error ? (
+                <div className="rounded-2xl border border-[#f1d3d0] bg-[#fff4f3] px-4 py-4 text-sm text-[#a54848] flex items-center gap-3 animate-fade-in shadow-sm">
+                  <svg className="h-5 w-5 text-red-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span className="font-medium">{error}</span>
+                </div>
+              ) : null}
 
               <div className="soft-panel p-5">
                 <label className="mb-3 block text-sm font-semibold text-ink-900">Caption</label>
@@ -457,10 +519,21 @@ export function PostComposerModal({ open, onClose, onCreated }: Props) {
                   </div>
                 </div>
                 <form className="grid gap-4 md:grid-cols-[1fr_1fr_auto]" onSubmit={handleUpload}>
-                  <input id="mediaFile" name="mediaFile" type="file" className="field-input file:mr-3 file:rounded-full file:border-0 file:bg-brand-100 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-ink-900" />
+                  <input id="mediaFile" name="mediaFile" type="file" className="field-input file:mr-3 file:rounded-full file:border-0 file:bg-brand-100 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-ink-900 hover:file:bg-brand-200 transition-colors duration-150" />
                   <input value={altText} onChange={(event) => setAltText(event.target.value)} placeholder="Alt text (optional)" className="field-input" />
-                  <button type="submit" disabled={uploading} className="secondary-button h-[52px] px-5">
-                    {uploading ? "Uploading..." : "Upload"}
+                  <button 
+                    type="submit" 
+                    disabled={uploading} 
+                    className="secondary-button h-[52px] px-6 flex items-center gap-2 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {uploading ? (
+                      <>
+                        <LoadingSpinner size="sm" />
+                        <span>Uploading...</span>
+                      </>
+                    ) : (
+                      <span>Upload</span>
+                    )}
                   </button>
                 </form>
 
@@ -468,7 +541,10 @@ export function PostComposerModal({ open, onClose, onCreated }: Props) {
                   {media.length ? media.map((asset) => {
                     const selected = selectedMediaIds.includes(asset.id);
                     return (
-                      <label key={asset.id} className={`flex cursor-pointer items-start gap-3 rounded-[22px] border p-4 ${selected ? "border-brand-300 bg-brand-50" : "border-[#ebdfcf] bg-white"}`}>
+                      <label 
+                        key={asset.id} 
+                        className={`group flex cursor-pointer items-start gap-3 rounded-[22px] border p-4 transition-all duration-200 ${selected ? "border-brand-300 bg-brand-50 shadow-md ring-2 ring-brand-200/50 scale-[1.02]" : "border-[#ebdfcf] bg-white hover:border-brand-200 hover:shadow-lg hover:-translate-y-0.5"}`}
+                      >
                         <input
                           type="checkbox"
                           checked={selected}
@@ -479,17 +555,19 @@ export function PostComposerModal({ open, onClose, onCreated }: Props) {
                                 : current.filter((item) => item !== asset.id),
                             )
                           }
-                          className="mt-1"
+                          className="mt-1 h-5 w-5 rounded border-gray-300 text-brand-500 focus:ring-brand-400 transition duration-150 cursor-pointer"
                         />
-                        <div className="min-w-0">
-                          <div className="text-sm font-semibold text-ink-900">#{asset.id} {asset.file_type}</div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-semibold text-ink-900 group-hover:text-brand-700 transition-colors duration-150">#{asset.id} {asset.file_type}</div>
                           <div className="mt-1 line-clamp-2 text-xs leading-5 text-ink-600">{asset.alt_text || asset.file_url}</div>
                         </div>
                       </label>
                     );
                   }) : (
-                    <div className="rounded-[22px] border border-dashed border-[#e5dbc8] bg-[#faf6ef] px-4 py-10 text-center text-sm text-ink-500">
-                      No media uploaded yet.
+                    <div className="rounded-[22px] border-2 border-dashed border-[#e5dbc8] bg-gradient-to-br from-[#faf6ef] to-[#fff6de] px-4 py-12 text-center transition-all duration-200 hover:border-brand-300 hover:from-[#fff9e9] hover:to-[#fffaf0]">
+                      <div className="text-4xl mb-3">📁</div>
+                      <div className="text-sm font-medium text-ink-600">No media uploaded yet.</div>
+                      <div className="text-xs text-ink-500 mt-1">Upload images or videos above to get started</div>
                     </div>
                   )}
                 </div>
@@ -507,26 +585,29 @@ export function PostComposerModal({ open, onClose, onCreated }: Props) {
                     const hasAccounts = accountsByPlatform[platform].length > 0;
                     const enabled = configs[platform].enabled;
                     return (
-                      <div key={platform} className={`flex items-center gap-4 rounded-[22px] border px-4 py-4 ${enabled ? "border-brand-300 bg-[#fff9e9]" : "border-[#ebdfcf] bg-white"} ${!hasAccounts ? "opacity-60" : ""}`}>
+                      <div key={platform} className={`group flex cursor-pointer items-center gap-4 rounded-[22px] border px-4 py-4 transition-all duration-200 ${enabled ? "border-brand-300 bg-[#fff9e9] shadow-md ring-2 ring-brand-200/50" : "border-[#ebdfcf] bg-white hover:border-brand-200 hover:shadow-lg hover:-translate-y-0.5"} ${!hasAccounts ? "opacity-60 cursor-not-allowed" : ""}`}>
                         <input
                           type="checkbox"
                           checked={enabled}
                           disabled={!hasAccounts}
                           onChange={(event) => handlePlatformToggle(platform, event.target.checked)}
+                          className="h-5 w-5 rounded border-gray-300 text-brand-500 focus:ring-brand-400 transition duration-150 cursor-pointer"
                         />
-                        <div className={`flex h-11 w-11 items-center justify-center rounded-2xl text-xs font-semibold ${platformTone[platform]}`}>{initials(labels[platform])}</div>
+                        <div className={`flex h-12 w-12 items-center justify-center rounded-2xl text-sm font-semibold transition-all duration-200 ${enabled ? "scale-110 shadow-md" : "group-hover:scale-105 group-hover:shadow-sm"} ${platformTone[platform]}`}>
+                          <PlatformIcon platform={platform} enabled={enabled} />
+                        </div>
                         <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                             <h4 className="text-base font-semibold text-ink-900">{labels[platform]}</h4>
-                            <span className={`h-2.5 w-2.5 rounded-full ${hasAccounts ? "bg-[#8dc63f]" : "bg-[#d7cdbd]"}`} />
+                            <span className={`h-2.5 w-2.5 rounded-full transition-all duration-200 ${hasAccounts ? "bg-[#8dc63f] shadow-sm" : "bg-[#d7cdbd]"}`} />
                           </div>
                           <p className="mt-1 text-sm text-ink-600">{descriptions[platform]}</p>
-                          <p className={`mt-1 text-xs ${mediaStateByPlatform[platform].valid ? "text-[#5f7f2e]" : "text-[#b25a4f]"}`}>
+                          <p className={`mt-1 text-xs font-medium ${mediaStateByPlatform[platform].valid ? "text-[#5f7f2e]" : "text-[#b25a4f]"}`}>
                             {mediaStateByPlatform[platform].message}
                           </p>
                         </div>
                         {hasAccounts ? (
-                          <button type="button" onClick={() => setActivePlatform(platform)} className="secondary-button px-4 py-2 text-sm">
+                          <button type="button" onClick={() => setActivePlatform(platform)} className="secondary-button px-4 py-2 text-sm transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 active:translate-y-0">
                             Settings
                           </button>
                         ) : (
@@ -539,10 +620,28 @@ export function PostComposerModal({ open, onClose, onCreated }: Props) {
               </div>
 
               <div className="flex flex-wrap gap-3">
-                <button type="button" onClick={() => void handleSubmit()} disabled={submitting} className="primary-button px-6">
-                  {submitting ? "Creating..." : "Create Posts"}
+                <button 
+                  type="button" 
+                  onClick={() => void handleSubmit()} 
+                  disabled={submitting} 
+                  className="primary-button relative px-8 py-3 text-base font-semibold transition-all duration-200 hover:shadow-xl hover:-translate-y-1 active:translate-y-0 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-none flex items-center gap-2"
+                >
+                  {submitting ? (
+                    <>
+                      <LoadingSpinner size="sm" />
+                      <span>Creating Posts...</span>
+                    </>
+                  ) : (
+                    <span>Create Posts</span>
+                  )}
                 </button>
-                <button type="button" onClick={onClose} className="secondary-button px-6">Cancel</button>
+                <button 
+                  type="button" 
+                  onClick={onClose} 
+                  className="secondary-button px-8 py-3 text-base font-semibold transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0"
+                >
+                  Cancel
+                </button>
               </div>
             </div>
 

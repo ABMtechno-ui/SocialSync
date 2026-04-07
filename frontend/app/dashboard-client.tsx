@@ -178,9 +178,10 @@ export default function DashboardClient() {
               <button
                 type="button"
                 onClick={() => setComposerOpen(true)}
-                className="primary-button self-start whitespace-nowrap px-7 py-3.5 text-base"
+                className="primary-button self-start whitespace-nowrap px-8 py-4 text-base font-semibold transition-all duration-200 hover:shadow-2xl hover:-translate-y-1 active:translate-y-0 flex items-center gap-2 group"
               >
-                + New Post
+                <span className="text-xl group-hover:rotate-90 transition-transform duration-300">+</span>
+                <span>New Post</span>
               </button>
             </div>
 
@@ -267,9 +268,9 @@ export default function DashboardClient() {
               <button
                 type="button"
                 onClick={() => setComposerOpen(true)}
-                className="field-input mb-4 min-h-[100px] cursor-text text-left text-base text-ink-500 hover:border-brand-300"
+                className="field-input mb-4 min-h-[100px] cursor-text text-left text-base text-ink-500 hover:border-brand-300 hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5 group"
               >
-                What&apos;s on your mind?
+                <span className="group-hover:text-brand-600 transition-colors duration-150">What&apos;s on your mind?</span>
               </button>
               <div className="flex flex-wrap gap-2 mb-4">
                 {platformMeta.filter(p => status[p.key].connected).slice(0, 3).map(p => (
@@ -291,7 +292,7 @@ export default function DashboardClient() {
                 <p className="mt-1 text-xs text-ink-500">
                   {stats.connectedPlatforms} platform{stats.connectedPlatforms !== 1 ? "s" : ""} ready
                 </p>
-                <button type="button" onClick={() => setComposerOpen(true)} className="primary-button mt-4 w-full py-3">
+                <button type="button" onClick={() => setComposerOpen(true)} className="primary-button mt-4 w-full py-3.5 text-base font-semibold transition-all duration-200 hover:shadow-xl hover:-translate-y-1 active:translate-y-0">
                   Open Composer
                 </button>
               </div>
