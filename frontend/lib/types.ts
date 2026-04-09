@@ -54,6 +54,24 @@ export type Post = {
   updated_at?: string | null;
 };
 
+export type PostLiveMetricsResponse = {
+  post_id: number;
+  platform: string;
+  provider_post_id?: string | null;
+  available: boolean;
+  fetched_at: string;
+  metrics: Record<string, unknown>;
+  message?: string | null;
+};
+
+export type NormalizedPostMetrics = {
+  likes: number;
+  comments: number;
+  views: number;
+  shares: number;
+  impressions: number;
+};
+
 export type PlatformName =
   | "facebook"
   | "instagram"

@@ -1,4 +1,10 @@
-import { Account, AccountStatusResponse, MediaAsset, Post } from "@/lib/types";
+import {
+  Account,
+  AccountStatusResponse,
+  MediaAsset,
+  Post,
+  PostLiveMetricsResponse,
+} from "@/lib/types";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
@@ -157,6 +163,10 @@ export function uploadMedia(formData: FormData) {
 
 export function fetchPosts() {
   return apiFetch<Post[]>("/api/v1/posts/");
+}
+
+export function fetchPostMetrics(postId: number) {
+  return apiFetch<PostLiveMetricsResponse>(`/api/v1/posts/${postId}/metrics`);
 }
 
 export function createPost(payload: {

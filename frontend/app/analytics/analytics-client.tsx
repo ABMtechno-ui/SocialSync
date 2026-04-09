@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import { fetchAccounts, fetchPosts } from "@/lib/api";
-import { Account, PlatformName, Post } from "@/lib/types";
+import { fetchAccounts, fetchPostMetrics, fetchPosts } from "@/lib/api";
+import { Account, NormalizedPostMetrics, PlatformName, Post, PostLiveMetricsResponse } from "@/lib/types";
 
 const platforms: Array<{ key: PlatformName; label: string; tone: string }> = [
   { key: "facebook", label: "Facebook", tone: "bg-[#edf3ff] text-[#315ed2]" },
@@ -22,9 +22,29 @@ function initials(label: string) {
     .toUpperCase();
 }
 
+function metricNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function normalizeMetrics(response?: PostLiveMetricsResponse | null): NormalizedPostMetrics {
+  const metrics = response?.metrics ?? {};
+  return {
+    likes: metricNumber(metrics.likeCount) + metricNumber(metrics.likes),
+    comments: metricNumber(metrics.commentCount) + metricNumber(metrics.comments),
+    views:
+      metricNumber(metrics.viewCount) +
+      metricNumber(metrics.videoViews) +
+      metricNumber(metrics.views) +
+      metricNumber(metrics.reach),
+    shares: metricNumber(metrics.shares) + metricNumber(metrics.retweetCount),
+    impressions: metricNumber(metrics.impressionCount) + metricNumber(metrics.impressions),
+  };
+}
+
 export default function AnalyticsClient() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [metricsByPost, setMetricsByPost] = useState<Record<number, PostLiveMetricsResponse>>({});
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -42,6 +62,33 @@ export default function AnalyticsClient() {
     void load();
   }, []);
 
+  useEffect(() => {
+    async function loadMetrics() {
+      const eligiblePosts = posts.filter((post) => post.status === "posted" && post.platform_post_id);
+      if (!eligiblePosts.length) {
+        setMetricsByPost({});
+        return;
+      }
+
+      const results = await Promise.allSettled(
+        eligiblePosts.map(async (post) => ({
+          postId: post.id,
+          metrics: await fetchPostMetrics(post.id),
+        })),
+      );
+
+      const next: Record<number, PostLiveMetricsResponse> = {};
+      for (const result of results) {
+        if (result.status === "fulfilled") {
+          next[result.value.postId] = result.value.metrics;
+        }
+      }
+      setMetricsByPost(next);
+    }
+
+    void loadMetrics();
+  }, [posts]);
+
   const summary = useMemo(() => {
     const total = posts.length;
     const posted = posts.filter((post) => post.status === "posted").length;
@@ -56,6 +103,19 @@ export default function AnalyticsClient() {
       platforms.map((platform) => {
         const platformPosts = posts.filter((post) => post.platform === platform.key);
         const platformAccounts = accounts.filter((account) => account.platform === platform.key && account.is_active);
+        const platformMetrics = platformPosts
+          .filter((post) => post.status === "posted")
+          .map((post) => normalizeMetrics(metricsByPost[post.id]))
+          .reduce(
+            (acc, item) => ({
+              likes: acc.likes + item.likes,
+              comments: acc.comments + item.comments,
+              views: acc.views + item.views,
+              shares: acc.shares + item.shares,
+              impressions: acc.impressions + item.impressions,
+            }),
+            { likes: 0, comments: 0, views: 0, shares: 0, impressions: 0 },
+          );
         return {
           ...platform,
           accounts: platformAccounts.length,
@@ -63,9 +123,27 @@ export default function AnalyticsClient() {
           posted: platformPosts.filter((post) => post.status === "posted").length,
           queued: platformPosts.filter((post) => ["pending", "queued", "scheduled", "processing"].includes(post.status)).length,
           failed: platformPosts.filter((post) => post.status === "failed").length,
+          metrics: platformMetrics,
         };
       }),
-    [accounts, posts],
+    [accounts, metricsByPost, posts],
+  );
+
+  const engagementTotals = useMemo(
+    () =>
+      Object.values(metricsByPost)
+        .map((item) => normalizeMetrics(item))
+        .reduce(
+          (acc, item) => ({
+            likes: acc.likes + item.likes,
+            comments: acc.comments + item.comments,
+            views: acc.views + item.views,
+            shares: acc.shares + item.shares,
+            impressions: acc.impressions + item.impressions,
+          }),
+          { likes: 0, comments: 0, views: 0, shares: 0, impressions: 0 },
+        ),
+    [metricsByPost],
   );
 
   const latestFailures = useMemo(
@@ -112,6 +190,22 @@ export default function AnalyticsClient() {
           ))}
         </section>
 
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          {[
+            { label: "Likes", value: engagementTotals.likes },
+            { label: "Comments", value: engagementTotals.comments },
+            { label: "Views", value: engagementTotals.views },
+            { label: "Shares", value: engagementTotals.shares },
+            { label: "Impressions", value: engagementTotals.impressions },
+          ].map((item) => (
+            <div key={item.label} className="rounded-[24px] border border-[#ece2d2] bg-[#fffdf9] p-4">
+              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#b38d35]">{item.label}</div>
+              <div className="mt-2 font-display text-3xl font-semibold tracking-[-0.05em] text-ink-900">{item.value}</div>
+              <p className="mt-1 text-xs text-ink-500">Live metrics from provider APIs where available.</p>
+            </div>
+          ))}
+        </section>
+
         <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
           <div className="panel p-5 sm:p-6">
             <div className="mb-5">
@@ -143,6 +237,12 @@ export default function AnalyticsClient() {
                       <div className="font-semibold text-[#b64e48]">{row.failed}</div>
                       <div className="mt-1 text-xs text-ink-600">Failed</div>
                     </div>
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
+                    <div className="rounded-xl bg-[#fcfaf5] px-3 py-2 text-ink-600">Likes: <span className="font-semibold text-ink-900">{row.metrics.likes}</span></div>
+                    <div className="rounded-xl bg-[#fcfaf5] px-3 py-2 text-ink-600">Comments: <span className="font-semibold text-ink-900">{row.metrics.comments}</span></div>
+                    <div className="rounded-xl bg-[#fcfaf5] px-3 py-2 text-ink-600">Views: <span className="font-semibold text-ink-900">{row.metrics.views}</span></div>
+                    <div className="rounded-xl bg-[#fcfaf5] px-3 py-2 text-ink-600">Shares: <span className="font-semibold text-ink-900">{row.metrics.shares}</span></div>
                   </div>
                 </div>
               ))}

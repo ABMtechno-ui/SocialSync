@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 
 import { EditPostModal } from "@/components/edit-post-modal-v2";
 import { PostComposerModal } from "@/components/post-composer-modal-v2";
-import { cancelPost, fetchAccounts, fetchPosts, publishPostNow } from "@/lib/api";
-import { Account, Post } from "@/lib/types";
+import { cancelPost, fetchAccounts, fetchPostMetrics, fetchPosts, publishPostNow } from "@/lib/api";
+import { Account, NormalizedPostMetrics, Post, PostLiveMetricsResponse } from "@/lib/types";
 
 type FilterStatus = "all" | "scheduled" | "posted" | "failed" | "cancelled";
 
@@ -29,6 +29,46 @@ function groupPosts(posts: Post[]) {
     if (b[0] === "Unscheduled") return -1;
     return new Date(a[0]).getTime() - new Date(b[0]).getTime();
   });
+}
+
+function metricNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function normalizeMetrics(response?: PostLiveMetricsResponse | null): NormalizedPostMetrics {
+  const metrics = response?.metrics ?? {};
+  return {
+    likes: metricNumber(metrics.likeCount) + metricNumber(metrics.likes),
+    comments: metricNumber(metrics.commentCount) + metricNumber(metrics.comments),
+    views:
+      metricNumber(metrics.viewCount) +
+      metricNumber(metrics.videoViews) +
+      metricNumber(metrics.views) +
+      metricNumber(metrics.reach),
+    shares: metricNumber(metrics.shares) + metricNumber(metrics.retweetCount),
+    impressions: metricNumber(metrics.impressionCount) + metricNumber(metrics.impressions),
+  };
+}
+
+function MetricsRow({ metrics }: { metrics: NormalizedPostMetrics }) {
+  const cards = [
+    { label: "Likes", value: metrics.likes },
+    { label: "Comments", value: metrics.comments },
+    { label: "Views", value: metrics.views },
+    { label: "Shares", value: metrics.shares },
+    { label: "Impressions", value: metrics.impressions },
+  ];
+
+  return (
+    <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+      {cards.map((item) => (
+        <div key={item.label} className="rounded-xl border border-[#e9dfcf] bg-[#fcfaf5] px-3 py-2">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#b38d35]">{item.label}</div>
+          <div className="mt-1 text-sm font-semibold text-ink-900">{item.value}</div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function PlatformBadge({ platform }: { platform: string }) {
@@ -65,6 +105,8 @@ function StatusBadge({ status }: { status: string }) {
 export default function PostsClient() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [metricsByPost, setMetricsByPost] = useState<Record<number, PostLiveMetricsResponse>>({});
+  const [metricsLoadingIds, setMetricsLoadingIds] = useState<Record<number, boolean>>({});
   const [error, setError] = useState<string | null>(null);
   const [busyPostId, setBusyPostId] = useState<number | null>(null);
   const [editingPost, setEditingPost] = useState<Post | null>(null);
@@ -85,12 +127,57 @@ export default function PostsClient() {
     }
   }
 
+  async function loadMetricsForPosts(postItems: Post[]) {
+    const eligiblePosts = postItems.filter(
+      (post) => post.status === "posted" && post.platform_post_id,
+    );
+
+    if (!eligiblePosts.length) {
+      return;
+    }
+
+    setMetricsLoadingIds((current) => {
+      const next = { ...current };
+      for (const post of eligiblePosts) {
+        next[post.id] = true;
+      }
+      return next;
+    });
+
+    const results = await Promise.allSettled(
+      eligiblePosts.map(async (post) => ({
+        postId: post.id,
+        metrics: await fetchPostMetrics(post.id),
+      })),
+    );
+
+    const loadedMetrics: Record<number, PostLiveMetricsResponse> = {};
+    for (const result of results) {
+      if (result.status === "fulfilled") {
+        loadedMetrics[result.value.postId] = result.value.metrics;
+      }
+    }
+
+    setMetricsByPost((current) => ({ ...current, ...loadedMetrics }));
+    setMetricsLoadingIds((current) => {
+      const next = { ...current };
+      for (const post of eligiblePosts) {
+        next[post.id] = false;
+      }
+      return next;
+    });
+  }
+
   // Auto-refresh every 30 seconds for real-time status updates
   useEffect(() => {
     void load();
     const interval = setInterval(load, 30000); // 30 seconds
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    void loadMetricsForPosts(posts);
+  }, [posts]);
 
   async function handlePublishNow(postId: number) {
     try {
@@ -273,6 +360,11 @@ export default function PostsClient() {
                     const canEdit = !["posted","processing","cancelled"].includes(post.status);
                     const canPublish = !["posted","processing"].includes(post.status);
                     const canCancel = !["posted","cancelled"].includes(post.status);
+                    const liveMetrics = metricsByPost[post.id];
+                    const normalizedMetrics = normalizeMetrics(liveMetrics);
+                    const showMetrics =
+                      liveMetrics?.available &&
+                      Object.values(normalizedMetrics).some((value) => value > 0);
 
                     return (
                       <div key={post.id} className="post-card rounded-[22px] border border-[#ece3d3] bg-[#fffcf7] p-4 sm:p-5">
@@ -316,6 +408,20 @@ export default function PostsClient() {
                                 Platform ID: <span className="font-mono text-ink-700">{post.platform_post_id}</span>
                               </div>
                             )}
+
+                            {post.status === "posted" && post.platform_post_id ? (
+                              metricsLoadingIds[post.id] ? (
+                                <div className="mt-3 rounded-xl border border-[#ece2d2] bg-[#faf6ef] px-3 py-2 text-xs text-ink-500">
+                                  Loading engagement metrics...
+                                </div>
+                              ) : showMetrics ? (
+                                <MetricsRow metrics={normalizedMetrics} />
+                              ) : liveMetrics?.message ? (
+                                <div className="mt-3 rounded-xl border border-[#ece2d2] bg-[#faf6ef] px-3 py-2 text-xs text-ink-500">
+                                  Metrics unavailable: {liveMetrics.message}
+                                </div>
+                              ) : null
+                            ) : null}
                           </div>
 
                           {/* Action buttons */}
