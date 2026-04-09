@@ -20,14 +20,13 @@ COPY . .
 # Install dependencies
 RUN uv sync --frozen --no-dev
 
-# Ensure alembic is available
-RUN uv pip install alembic
-
 # Make wait script executable
 COPY wait-for-db.sh .
 RUN chmod +x wait-for-db.sh
+COPY docker-entrypoint.sh .
+RUN chmod +x docker-entrypoint.sh
 
 EXPOSE 8000
 
-# Auto run migration + start server (Best Practice)
+# Runtime command is provided by docker-compose so migrations run before the app starts.
 CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
