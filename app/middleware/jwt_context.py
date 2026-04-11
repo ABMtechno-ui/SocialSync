@@ -28,6 +28,14 @@ def _extract_bearer_token(authorization: Optional[str]) -> Optional[str]:
     return parts[1]
 
 
+def _extract_request_token(request: Request, settings) -> Optional[str]:
+    header_token = _extract_bearer_token(request.headers.get("Authorization"))
+    if header_token:
+        return header_token
+    cookie_token = request.cookies.get(settings.SESSION_COOKIE_NAME)
+    return cookie_token or None
+
+
 def _build_developer_user(request: Request, settings) -> CurrentUser:
     query_tenant_id = (
         request.query_params.get(settings.QUERY_TENANT_PARAM)
@@ -51,6 +59,7 @@ def _build_developer_user(request: Request, settings) -> CurrentUser:
 async def jwt_context_middleware(request: Request, call_next):
     oauth_path = request.url.path.startswith("/api/v1/oauth/")
     oauth_callback_path = oauth_path and request.url.path.endswith("/callback")
+    auth_exchange_path = request.url.path == "/api/v1/auth/webview/exchange"
 
     public_paths = [
         "/docs",
@@ -62,14 +71,14 @@ async def jwt_context_middleware(request: Request, call_next):
     if any(request.url.path.startswith(p) for p in public_paths):
         return await call_next(request)
 
-    if oauth_callback_path:
+    if oauth_callback_path or auth_exchange_path:
         return await call_next(request)
     
     if request.method == "OPTIONS":
         return await call_next(request)
 
     settings = get_settings()
-    token = _extract_bearer_token(request.headers.get("Authorization"))
+    token = _extract_request_token(request, settings)
     current_user: Optional[CurrentUser] = None
 
     if token:

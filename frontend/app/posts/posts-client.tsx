@@ -50,6 +50,30 @@ function normalizeMetrics(response?: PostLiveMetricsResponse | null): Normalized
   };
 }
 
+function getLivePostUrl(post: Post, metrics?: PostLiveMetricsResponse | null) {
+  const permalink = metrics?.metrics?.permalink;
+  if (typeof permalink === "string" && permalink.trim()) {
+    return permalink;
+  }
+
+  if (!post.platform_post_id) {
+    return null;
+  }
+
+  switch (post.platform) {
+    case "youtube":
+      return `https://www.youtube.com/watch?v=${encodeURIComponent(post.platform_post_id)}`;
+    case "twitter":
+      return `https://x.com/i/web/status/${encodeURIComponent(post.platform_post_id)}`;
+    case "linkedin":
+      return `https://www.linkedin.com/feed/update/${encodeURIComponent(post.platform_post_id)}/`;
+    case "facebook":
+      return `https://www.facebook.com/${encodeURIComponent(post.platform_post_id)}`;
+    default:
+      return null;
+  }
+}
+
 function MetricsRow({ metrics }: { metrics: NormalizedPostMetrics }) {
   const cards = [
     { label: "Likes", value: metrics.likes },
@@ -362,6 +386,7 @@ export default function PostsClient() {
                     const canCancel = !["posted","cancelled"].includes(post.status);
                     const liveMetrics = metricsByPost[post.id];
                     const normalizedMetrics = normalizeMetrics(liveMetrics);
+                    const livePostUrl = getLivePostUrl(post, liveMetrics);
                     const showMetrics =
                       liveMetrics?.available &&
                       Object.values(normalizedMetrics).some((value) => value > 0);
@@ -404,8 +429,20 @@ export default function PostsClient() {
                             )}
 
                             {post.platform_post_id && (
-                              <div className="mt-2 text-xs text-ink-500">
-                                Platform ID: <span className="font-mono text-ink-700">{post.platform_post_id}</span>
+                              <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-ink-500">
+                                <span>
+                                  Platform ID: <span className="font-mono text-ink-700">{post.platform_post_id}</span>
+                                </span>
+                                {post.status === "posted" && livePostUrl ? (
+                                  <a
+                                    href={livePostUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center gap-1 rounded-full border border-[#e4d9c7] bg-white px-3 py-1 font-medium text-[#8f6f1f] transition hover:border-[#d6c297] hover:bg-[#fff8e6]"
+                                  >
+                                    View Live
+                                  </a>
+                                ) : null}
                               </div>
                             )}
 

@@ -7,7 +7,7 @@ import {
 } from "@/lib/types";
 
 const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
+  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "tenant_123";
 const TOKEN_STORAGE_KEY =
   process.env.NEXT_PUBLIC_AUTH_TOKEN_STORAGE_KEY ?? "snapkey_jwt";
@@ -91,6 +91,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const tenantId = getRuntimeTenantId();
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
+    credentials: "include",
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(!token ? { "X-Tenant-ID": tenantId } : {}),
@@ -125,6 +126,35 @@ export function getApiBaseUrl() {
 
 export function getTenantId() {
   return getRuntimeTenantId();
+}
+
+export function fetchSession() {
+  return apiFetch<{
+    authenticated: boolean;
+    tenant_id: string;
+    user_id: string;
+    role?: string | null;
+    is_admin: boolean;
+  }>("/api/v1/auth/session");
+}
+
+export function exchangeWebviewCode(code: string) {
+  return apiFetch<{
+    authenticated: boolean;
+    tenant_id: string;
+    user_id: string;
+    role?: string | null;
+    is_admin: boolean;
+  }>("/api/v1/auth/webview/exchange", {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  });
+}
+
+export function logoutSession() {
+  return apiFetch<null>("/api/v1/auth/logout", {
+    method: "POST",
+  });
 }
 
 export function getOAuthLoginUrl(platform: string) {

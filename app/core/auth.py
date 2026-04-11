@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import time
 from typing import Any, Dict, Optional
 
 import jwt
@@ -14,6 +15,54 @@ class CurrentUser:
     role: Optional[str]
     is_admin: bool
     claims: Dict[str, Any]
+
+
+def create_bearer_token(
+    *,
+    tenant_id: str,
+    subject: str,
+    is_admin: bool = False,
+    extra_claims: Optional[Dict[str, Any]] = None,
+) -> str:
+    settings = get_settings()
+    if not settings.JWT_SECRET:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="JWT signing key is not configured",
+        )
+
+    now = int(time.time())
+    payload: Dict[str, Any] = {
+        settings.JWT_TENANT_CLAIM: tenant_id,
+        settings.JWT_SUBJECT_CLAIM: subject,
+        settings.JWT_ROLE_CLAIM: bool(is_admin),
+        "iat": now,
+        "exp": now + (settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60),
+    }
+
+    if settings.JWT_ISSUER:
+        payload["iss"] = settings.JWT_ISSUER
+    if settings.JWT_AUDIENCE:
+        payload["aud"] = settings.JWT_AUDIENCE
+    if extra_claims:
+        reserved_claims = {
+            "exp",
+            "iat",
+            "iss",
+            "aud",
+            settings.JWT_TENANT_CLAIM,
+            settings.JWT_SUBJECT_CLAIM,
+            settings.JWT_ROLE_CLAIM,
+        }
+        payload.update(
+            {
+                key: value
+                for key, value in extra_claims.items()
+                if key not in reserved_claims
+            }
+        )
+
+    return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 
 
 def decode_bearer_token(token: str) -> CurrentUser:

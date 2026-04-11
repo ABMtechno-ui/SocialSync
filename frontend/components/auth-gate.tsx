@@ -1,16 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
-import { hasStoredAuthToken } from "@/lib/api";
+import { fetchSession, hasStoredAuthToken } from "@/lib/api";
 
-const PUBLIC_PATHS = new Set(["/login", "/privacy-policy", "/terms"]);
+const PUBLIC_PATHS = new Set(["/login", "/privacy-policy", "/terms", "/webview-auth"]);
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [ready, setReady] = useState(false);
 
   const isPublicPath = useMemo(() => {
@@ -21,26 +20,55 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   }, [pathname]);
 
   useEffect(() => {
-    const hasToken = hasStoredAuthToken();
+    let cancelled = false;
 
-    if (isPublicPath) {
-      if (pathname === "/login" && hasToken) {
-        const nextPath = searchParams.get("next") || "/";
-        router.replace(nextPath);
+    async function resolveSession() {
+      const hasToken = hasStoredAuthToken();
+      let hasCookieSession = false;
+
+      if (!hasToken) {
+        try {
+          const session = await fetchSession();
+          hasCookieSession = Boolean(session?.authenticated);
+        } catch {
+          hasCookieSession = false;
+        }
+      }
+
+      const isAuthenticated = hasToken || hasCookieSession;
+
+      if (cancelled) {
         return;
       }
+
+      if (isPublicPath) {
+        if ((pathname === "/login" || pathname === "/webview-auth") && isAuthenticated) {
+          const nextPath =
+            typeof window !== "undefined"
+              ? new URLSearchParams(window.location.search).get("next") || "/"
+              : "/";
+          router.replace(nextPath);
+          return;
+        }
+        setReady(true);
+        return;
+      }
+
+      if (!isAuthenticated) {
+        const nextPath = pathname || "/";
+        router.replace(`/login?next=${encodeURIComponent(nextPath)}`);
+        return;
+      }
+
       setReady(true);
-      return;
     }
 
-    if (!hasToken) {
-      const nextPath = pathname || "/";
-      router.replace(`/login?next=${encodeURIComponent(nextPath)}`);
-      return;
-    }
+    void resolveSession();
 
-    setReady(true);
-  }, [isPublicPath, pathname, router, searchParams]);
+    return () => {
+      cancelled = true;
+    };
+  }, [isPublicPath, pathname, router]);
 
   if (!ready) {
     return (

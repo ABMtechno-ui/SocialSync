@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import { PostComposerModal } from "@/components/post-composer-modal-v2";
-import { clearStoredAuthToken } from "@/lib/api";
+import { clearStoredAuthToken, logoutSession } from "@/lib/api";
 
 const navigation = [
   { href: "/", label: "Dashboard", icon: "⊞" },
@@ -28,12 +28,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [composerOpen, setComposerOpen] = useState(false);
 
-  function handleLogout() {
+  async function handleLogout() {
     clearStoredAuthToken();
+    try {
+      await logoutSession();
+    } catch {
+      // Frontend logout should still succeed even if the cookie cleanup call fails.
+    }
     router.replace("/login");
   }
 
-  if (pathname === "/login") {
+  if (pathname === "/login" || pathname === "/webview-auth") {
     return <>{children}</>;
   }
 
