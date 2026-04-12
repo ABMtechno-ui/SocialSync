@@ -29,6 +29,11 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
     openapi_url=f"{get_settings().API_V1_STR}/openapi.json",
+    
+    # ADD THESE TWO LINES HERE:
+    docs_url="/docs",
+    redoc_url="/redoc",
+    
     swagger_ui_init_oauth={
         "clientId": get_settings().GOOGLE_CLIENT_ID,
         "clientSecret": get_settings().GOOGLE_SECRET,
