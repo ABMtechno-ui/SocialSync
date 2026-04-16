@@ -57,6 +57,7 @@ def _build_developer_user(request: Request, settings) -> CurrentUser:
 
 
 async def jwt_context_middleware(request: Request, call_next):
+    """JWT authentication middleware with CORS support for error responses."""
     oauth_path = request.url.path.startswith("/api/v1/oauth/")
     oauth_callback_path = oauth_path and request.url.path.endswith("/callback")
     auth_exchange_path = request.url.path == "/api/v1/auth/webview/exchange"
