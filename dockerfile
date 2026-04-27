@@ -25,8 +25,16 @@ COPY wait-for-db.sh .
 RUN chmod +x wait-for-db.sh
 COPY docker-entrypoint.sh .
 RUN chmod +x docker-entrypoint.sh
+COPY start-backend.sh .
+RUN chmod +x start-backend.sh
+COPY start-worker.sh .
+RUN chmod +x start-worker.sh
+COPY start-beat.sh .
+RUN chmod +x start-beat.sh
+COPY start-service.sh .
+RUN chmod +x start-service.sh
 
 EXPOSE 8000
 
-# Runtime command is provided by docker-compose so migrations run before the app starts.
-CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Default command auto-detects backend/worker/beat service role.
+CMD ["./start-service.sh"]
