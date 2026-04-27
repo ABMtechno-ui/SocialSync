@@ -1,38 +1,30 @@
 import type { Metadata } from "next";
-import { DM_Sans, Space_Grotesk } from "next/font/google";
-
-import { AppShell } from "@/components/app-shell";
-import { AuthGate } from "@/components/auth-gate";
-
+import { DM_Sans, Space_Mono } from "next/font/google";
 import "./globals.css";
 
-const bodyFont = DM_Sans({
+const dmSans = DM_Sans({
   subsets: ["latin"],
-  variable: "--font-body",
+  weight: ["300", "400", "500", "600", "700", "800", "900"],
+  variable: "--font-sans",
+  display: "swap",
 });
 
-const displayFont = Space_Grotesk({
+const spaceMono = Space_Mono({
   subsets: ["latin"],
-  variable: "--font-display",
+  weight: ["400", "700"],
+  variable: "--font-mono",
+  display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "SnapKey CRM | Social Publishing",
-  description: "Social publishing module for SnapKey CRM.",
+  title: "SocialSync",
+  description: "Social media scheduling platform by ABM Techno Matrix",
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
-      <body className={`${bodyFont.variable} ${displayFont.variable}`}>
-        <AuthGate>
-          <AppShell>{children}</AppShell>
-        </AuthGate>
-      </body>
+    <html lang="en" className={`${dmSans.variable} ${spaceMono.variable}`}>
+      <body>{children}</body>
     </html>
   );
 }
